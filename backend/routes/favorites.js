@@ -25,6 +25,19 @@ function createFavoritesRouter({ usersFile, booksFile, readJSON, writeJSON, auth
     res.status(200).json({ message: 'Book added to favorites' });
   });
 
+  router.delete('/', authenticateToken, (req, res) => {
+    try {
+      const users = readJSON(usersFile);
+      const user = users.find(u => u.username === req.user.username);
+      if (!user) return res.status(404).json({ message: 'User not found' });
+      user.favorites = [];
+      writeJSON(usersFile, users);
+      res.json({ message: 'All favorites cleared' });
+    } catch {
+      res.status(500).json({ message: 'Failed to clear favorites' });
+    }
+  });
+
   return router;
 }
 

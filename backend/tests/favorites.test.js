@@ -1,6 +1,7 @@
 const request = require('supertest');
 const express = require('express');
 const createApiRouter = require('../routes');
+const createFavoritesRouter = require('../routes/favorites');
 const path = require('path');
 
 const fs = require('fs');
@@ -110,5 +111,72 @@ describe('Favorites API', () => {
       .post('/api/favorites')
       .send({ bookId: '1' });
     expect(res.statusCode).toBe(401);
+  });
+
+  describe('DELETE /api/favorites', () => {
+    it('should reject missing or invalid authentication without changing data', async () => {
+      const before = fs.readFileSync(usersFile, 'utf-8');
+      const unauthenticated = await request(app).delete('/api/favorites');
+      const invalid = await request(app)
+        .delete('/api/favorites')
+        .set('Authorization', 'Bearer ' + 'invalid-token');
+      expect(unauthenticated.statusCode).toBe(401);
+      expect(invalid.statusCode).toBe(403);
+      expect(fs.readFileSync(usersFile, 'utf-8')).toBe(before);
+    });
+
+    it('should return 404 for an unknown user without changing data', async () => {
+      const before = fs.readFileSync(usersFile, 'utf-8');
+      const res = await request(app)
+        .delete('/api/favorites')
+        .set('Authorization', 'Bearer ' + getToken('nouser'));
+      expect(res.statusCode).toBe(404);
+      expect(fs.readFileSync(usersFile, 'utf-8')).toBe(before);
+    });
+
+    it('should persist clearing only the authenticated user and allow repeated clearing', async () => {
+      const before = fs.readFileSync(usersFile, 'utf-8');
+      const users = JSON.parse(before);
+      const sandra = users.find(u => u.username === 'sandra');
+      const books = JSON.parse(fs.readFileSync(booksFile, 'utf-8'));
+      sandra.favorites = books.slice(0, 2).map(book => book.id);
+      fs.writeFileSync(usersFile, JSON.stringify(users));
+      try {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const res = await request(app)
+            .delete('/api/favorites')
+            .set('Authorization', 'Bearer ' + getToken());
+          expect(res.statusCode).toBe(200);
+          expect(res.body).toEqual({ message: 'All favorites cleared' });
+          const persisted = JSON.parse(fs.readFileSync(usersFile, 'utf-8'));
+          expect(persisted).toEqual(users.map(user =>
+            user.username === 'sandra' ? { ...user, favorites: [] } : user
+          ));
+          const favorites = await request(app)
+            .get('/api/favorites')
+            .set('Authorization', 'Bearer ' + getToken());
+          expect(favorites.body).toEqual([]);
+        }
+      } finally {
+        fs.writeFileSync(usersFile, before);
+      }
+    });
+
+    it.each(['read', 'write'])('should return a JSON error on a storage %s failure', async (operation) => {
+      const failingApp = express();
+      const fail = () => { throw new Error('Private storage details'); };
+      failingApp.use('/api/favorites', createFavoritesRouter({
+        usersFile,
+        readJSON: operation === 'read' ? fail : () => [{ username: 'sandra', favorites: ['1'] }],
+        writeJSON: fail,
+        authenticateToken: (req, res, next) => {
+          req.user = { username: 'sandra' };
+          next();
+        },
+      }));
+      const res = await request(failingApp).delete('/api/favorites');
+      expect(res.statusCode).toBe(500);
+      expect(res.body).toEqual({ message: 'Failed to clear favorites' });
+    });
   });
 });
