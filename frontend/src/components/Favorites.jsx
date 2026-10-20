@@ -1,12 +1,14 @@
 import React, { useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { fetchFavorites } from '../store/favoritesSlice';
+import { clearAllFavorites, fetchFavorites } from '../store/favoritesSlice';
 import { useNavigate } from 'react-router-dom';
 
 const Favorites = () => {
   const dispatch = useAppDispatch();
   const favorites = useAppSelector(state => state.favorites.items);
   const status = useAppSelector(state => state.favorites.status);
+  const clearing = useAppSelector(state => state.favorites.clearing);
+  const clearError = useAppSelector(state => state.favorites.clearError);
   const token = useAppSelector(state => state.user.token);
   const navigate = useNavigate();
 
@@ -24,6 +26,17 @@ const Favorites = () => {
   return (
     <div>
       <h2>My Favorite Books</h2>
+      <button
+        disabled={favorites.length === 0 || clearing}
+        onClick={() => {
+          if (window.confirm('Are you sure you want to clear all your favorite books?')) {
+            dispatch(clearAllFavorites(token));
+          }
+        }}
+      >
+        {clearing ? 'Clearing...' : 'Clear All'}
+      </button>
+      {clearError && <p role="alert">{clearError}</p>}
       {favorites.length === 0 ? (
         <div style={{
           background: '#fff',
